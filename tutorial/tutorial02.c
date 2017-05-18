@@ -51,10 +51,15 @@ int main(int argc, char *argv[]) {
   float           aspect_ratio;
   struct SwsContext *sws_ctx = NULL;
 
-  SDL_Overlay     *bmp;
-  SDL_Surface     *screen;
+  //SDL_Overlay     *bmp;
+  SDL_Texture     *texture;
+  SDL_Window     *screen;
+    SDL_Renderer *renderer;
   SDL_Rect        rect;
   SDL_Event       event;
+  Uint8 *yPlane, *uPlane, *vPlane;
+    size_t yPlaneSz, uvPlaneSz;
+    int uvPitch;
 
   if(argc < 2) {
     fprintf(stderr, "Usage: test <file>\n");
@@ -113,36 +118,69 @@ int main(int argc, char *argv[]) {
   pFrame=av_frame_alloc();
 
   // Make a screen to put our video
+  screen = SDL_CreateWindow(
+            "FFmpeg Tutorial",
+            SDL_WINDOWPOS_UNDEFINED,
+            SDL_WINDOWPOS_UNDEFINED,
+            pCodecCtx->width,
+            pCodecCtx->height,
+            0
+        );
+/*
 #ifndef __DARWIN__
         screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 0, 0);
 #else
         screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 24, 0);
-#endif
+#endif */
   if(!screen) {
     fprintf(stderr, "SDL: could not set video mode - exiting\n");
     exit(1);
   }
-  
+ 
+  renderer = SDL_CreateRenderer(screen, -1, 0);
+  if (!renderer) {
+       fprintf(stderr, "SDL: could not create renderer - exiting\n");
+       exit(1);
+  } 
   // Allocate a place to put our YUV image on that screen
+  /*
   bmp = SDL_CreateYUVOverlay(pCodecCtx->width,
 				 pCodecCtx->height,
 				 SDL_YV12_OVERLAY,
 				 screen);
-
+  */
+   texture = SDL_CreateTexture(
+            renderer,
+            SDL_PIXELFORMAT_YV12,
+            SDL_TEXTUREACCESS_STREAMING,
+            pCodecCtx->width,
+            pCodecCtx->height
+        );
   // initialize SWS context for software scaling
   sws_ctx = sws_getContext(pCodecCtx->width,
 			   pCodecCtx->height,
 			   pCodecCtx->pix_fmt,
 			   pCodecCtx->width,
 			   pCodecCtx->height,
-			   PIX_FMT_YUV420P,
+			   AV_PIX_FMT_YUV420P,
 			   SWS_BILINEAR,
 			   NULL,
 			   NULL,
 			   NULL
 			   );
 
-
+   // set up YV12 pixel array (12 bits per pixel)
+   yPlaneSz = pCodecCtx->width * pCodecCtx->height;
+   uvPlaneSz = pCodecCtx->width * pCodecCtx->height / 4;
+   yPlane = (Uint8*)malloc(yPlaneSz);
+   uPlane = (Uint8*)malloc(uvPlaneSz);
+   vPlane = (Uint8*)malloc(uvPlaneSz);
+   if (!yPlane || !uPlane || !vPlane) {
+       fprintf(stderr, "Could not allocate pixel buffers - exiting\n");
+       exit(1);
+   }
+   
+   uvPitch = pCodecCtx->width / 2;
 
   // Read frames and save first five frames to disk
   i=0;
@@ -154,29 +192,41 @@ int main(int argc, char *argv[]) {
       
       // Did we get a video frame?
       if(frameFinished) {
-	SDL_LockYUVOverlay(bmp);
+	//SDL_LockYUVOverlay(bmp);
 
 	AVPicture pict;
-	pict.data[0] = bmp->pixels[0];
-	pict.data[1] = bmp->pixels[2];
-	pict.data[2] = bmp->pixels[1];
+	pict.data[0] = yPlane;
+	pict.data[1] = uPlane;
+	pict.data[2] = vPlane;
 
-	pict.linesize[0] = bmp->pitches[0];
-	pict.linesize[1] = bmp->pitches[2];
-	pict.linesize[2] = bmp->pitches[1];
+	pict.linesize[0] = pCodecCtx->width;
+	pict.linesize[1] = uvPitch;
+	pict.linesize[2] = uvPitch;
 
 	// Convert the image into YUV format that SDL uses
 	sws_scale(sws_ctx, (uint8_t const * const *)pFrame->data,
 		  pFrame->linesize, 0, pCodecCtx->height,
 		  pict.data, pict.linesize);
 
-	SDL_UnlockYUVOverlay(bmp);
-	
-	rect.x = 0;
+	//SDL_UnlockYUVOverlay(bmp);
+        SDL_UpdateYUVTexture(
+                        texture,
+                        NULL,
+                        yPlane,
+                        pCodecCtx->width,
+                        uPlane,
+                        uvPitch,
+                        vPlane,
+                        uvPitch
+                    );	
+        SDL_RenderClear(renderer);
+                SDL_RenderCopy(renderer, texture, NULL, NULL);
+                SDL_RenderPresent(renderer);
+/*	rect.x = 0;
 	rect.y = 0;
 	rect.w = pCodecCtx->width;
 	rect.h = pCodecCtx->height;
-	SDL_DisplayYUVOverlay(bmp, &rect);
+	SDL_DisplayYUVOverlay(bmp, &rect); */
       
       }
     }
@@ -186,6 +236,9 @@ int main(int argc, char *argv[]) {
     SDL_PollEvent(&event);
     switch(event.type) {
     case SDL_QUIT:
+      SDL_DestroyTexture(texture);
+      SDL_DestroyRenderer(renderer);
+      SDL_DestroyWindow(screen);
       SDL_Quit();
       exit(0);
       break;
@@ -197,7 +250,10 @@ int main(int argc, char *argv[]) {
   
   // Free the YUV frame
   av_frame_free(&pFrame);
-  
+  free(yPlane);
+  free(uPlane);
+  free(vPlane);
+ 
   // Close the codec
   avcodec_close(pCodecCtx);
   avcodec_close(pCodecCtxOrig);

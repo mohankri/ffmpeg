@@ -339,9 +339,11 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "SDL: could not set video mode - exiting\n");
     exit(1);
   }
-  
+ 
+   
   // Allocate a place to put our YUV image on that screen
-  bmp = SDL_CreateYUVOverlay(pCodecCtx->width,
+  //bmp = SDL_CreateYUVOverlay(pCodecCtx->width,
+  bmp = SDL_CreateTexture(pCodecCtx->width,
 				 pCodecCtx->height,
 				 SDL_YV12_OVERLAY,
 				 screen);
@@ -352,7 +354,7 @@ int main(int argc, char *argv[]) {
 			   pCodecCtx->pix_fmt,
 			   pCodecCtx->width,
 			   pCodecCtx->height,
-			   PIX_FMT_YUV420P,
+			   AV_PIX_FMT_YUV420P,
 			   SWS_BILINEAR,
 			   NULL,
 			   NULL,
